@@ -9,7 +9,7 @@ class StudentMarks(BaseModel):
     ps: int
     tech: int
     english: int
-    lifeskills: int
+    life_skills: int
 
 
 # @ = annotations,decorator
