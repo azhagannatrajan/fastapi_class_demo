@@ -1,8 +1,25 @@
-from fastapi import FastAPI
-# step 1
+from fastapi import FastAPI, Depends
+from sqlalchemy.orm import Session
+from sqlalchemy import text
+from database import Base, SessionLocal, engine
+import models
 from pydantic import BaseModel
 
 app = FastAPI()
+
+models.Base.metadata.create_all(bind=engine)
+
+# --------------------------
+# FIXED DB CONNECTION
+# --------------------------
+def connect_db():
+    db = SessionLocal()
+    try:
+        print("Connected to the DataBase")
+        yield db
+    finally:
+        db.close()
+
 
 @app.get("/test")
 def welcome_kit():
@@ -26,24 +43,19 @@ marks = [
         "ls": 78,
     },
 ]
-# get all marks
+
+
 @app.get("/marks")
-def get_all_marks():
-    if len(marks) == 0:
-        return {"message": "This end point will return all the marks"}
-    else:
-        # return {"marks": marks}
-        return marks
-    
-# get marks by id
+def get_all_marks(dbs: Session = Depends(connect_db)):
+    raw_query = "SELECT * FROM marks"
+    result = dbs.execute(text(raw_query)).fetchall()
+    return {"db_marks": [dict(row._mapping) for row in result]}
+
+
 @app.get("/marks/{student_id}")
 def get_marks_by_id(student_id: int):
-    return {
-        "message": f"This end point will return marks for student no - {student_id}"
-    }
+    return {"message": f"Marks for ID = {student_id}"}
 
-# step 2
-# create a class for the student marks
 class StudentMarks(BaseModel):
     student_id: str
     student_name: str
@@ -52,30 +64,33 @@ class StudentMarks(BaseModel):
     english: int
     lifeskills: int
 
-# create marks
+
 @app.post("/marks")
-def create_marks(new_marks: StudentMarks):
-    # extract separate data
-    my_name = new_marks.student_name
-    ps_mark = new_marks.ps
-    tech_mark = new_marks.tech
-    english = new_marks.english
-    ls = new_marks.lifeskills
-    my_id = new_marks.student_id
-    # packing into a dictionary
-    info = {}
-    info.update(
-        {
-            "name": my_name,
-            "id": my_id,
-            "ps": ps_mark,
-            "tech": tech_mark,
-            "english": english,
-            "ls": ls,
-        }
+def create_marks(new_marks: StudentMarks, db: Session = Depends(connect_db)):
+    db_entry = models.Marks(
+        student_id=new_marks.student_id,
+        student_name=new_marks.student_name,
+        ps=new_marks.ps,
+        tech=new_marks.tech,
+        english=new_marks.english,
+        lifeskills=new_marks.lifeskills,
     )
-    marks.append(info)
-    return {"message": "Uploaded Marks Successfully"}
+    db.add(db_entry)
+    db.commit()
+    db.refresh(db_entry)
+    return {
+        "message": "Uploaded Marks Successfully",
+        "data": {
+            "student_id": db_entry.student_id,
+            "name": db_entry.student_name,
+            "ps": db_entry.ps,
+            "tech": db_entry.tech,
+            "english": db_entry.english,
+            "ls": db_entry.lifeskills,
+        },
+    }
+
+
 class UpdateStudentData(BaseModel):
     student_name: str
     ps: int
@@ -83,22 +98,76 @@ class UpdateStudentData(BaseModel):
     english: int
     lifeskills: int
 
-# student_id is called Request Params
-# revised_marks is called Request Body (or) Payload
 
 @app.put("/marks/{student_id}")
 def update_marks(student_id: str, revised_marks: UpdateStudentData):
     for el in marks:
-        # id is compared here
         if el["id"] == student_id:
-            # i dont know which mark is getting updated
             el["ps"] = revised_marks.ps
             el["tech"] = revised_marks.tech
             el["ls"] = revised_marks.lifeskills
             el["english"] = revised_marks.english
             el["name"] = revised_marks.student_name
-    return {"message": "testing phase"}
+            return {"message": "Successfully updated", "new_data": el}
+    return {"message": "Student not found"}
+
+
 @app.delete("/marks/{student_id}")
-def delete_marks(student_id:str):
-    # write your code logic here
+def delete_marks(student_id: str):
+    for el in marks:
+        if el["id"] == student_id:
+            marks.remove(el)
+            return {"message": "Deleted successfully"}
+    return {"message": "Student not found"}
+
+
+'''
+---------------
+   COACH
+---------------
+'''
+@app.get("/")
+def view(db:Session = Depends(connect_db)):
     pass
+ 
+
+
+class Coach(BaseModel):
+    coach_id :int
+    coach_name:str
+    email:str
+
+
+@app.post("/coach")
+def add_details(entry : Coach ,db:Session = Depends(connect_db)):
+    db_entry = models.Coaches(
+        coach_id = entry.coach_id,
+        coach_name = entry.coach_name,
+        email = entry.email
+    )
+    db.add(db_entry)
+    db.commit()
+    db.refresh(db_entry)
+
+class Update(BaseModel):
+    name:str
+    email:str
+
+@app.put("/coach")
+def update_details(id :int,update:Update,db: Session = Depends(connect_db)):
+    db_update = db.query(models.Coaches).filter(models.Coaches.coach_id == id).first()
+    if db_update:
+        db_update.coach_name = update.name
+        db_update.email = update.email
+        db.commit()
+    return "updated successfully"
+    
+
+
+@app.delete("/coach/delete")
+def delete(id : int,db:Session= Depends(connect_db)):
+     db_delete = db.query(models.Coaches).filter(models.Coaches.coach_id == id).first()
+     if db_delete:
+        db.delete(db_delete)
+        db.commit()
+     return " deleted successfully"
