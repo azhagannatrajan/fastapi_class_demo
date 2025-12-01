@@ -5,4 +5,4 @@ class StudentsData(BaseModel):
     ps: int
     tech: int
     english: int
-    lifeskills: inta
+    lifeskills: int
